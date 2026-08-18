@@ -385,7 +385,6 @@ def run_calls(microsip_paths, numbers, dial_wait, hangup_wait, recall_count, log
 
 # ============================== ANTARMUKA (GUI) MODERN ==============================
 
-# Color scheme
 BG = "#0f172a"          # Slate 900
 BG_PANEL = "#1e293b"    # Slate 800
 BG_CARD = "#334155"     # Slate 700
@@ -398,35 +397,86 @@ SUCCESS = "#10b981"     # Emerald 500
 DANGER = "#f43f5e"      # Rose 500
 DANGER_HOVER = "#e11d48"
 
-# Font sizes will be scaled dynamically
-def get_scaled_font(base_size, scale_factor=1.0):
-    """Return scaled font size based on DPI scaling factor"""
-    return int(base_size * scale_factor)
+FONT_TITLE = ("Segoe UI", 16, "bold")
+FONT_SUBTITLE = ("Segoe UI", 9)
+FONT_HEADING = ("Segoe UI", 11, "bold")
+FONT_UI = ("Segoe UI", 10)
+FONT_UI_BOLD = ("Segoe UI", 10, "bold")
+FONT_MONO = ("Consolas", 10)
+FONT_STAT = ("Segoe UI", 16, "bold")
 
-class ScaledFonts:
-    """Container for dynamically scaled fonts"""
-    def __init__(self, scale=1.0):
-        self.title = ("Segoe UI", get_scaled_font(16, scale), "bold")
-        self.subtitle = ("Segoe UI", get_scaled_font(9, scale))
-        self.heading = ("Segoe UI", get_scaled_font(11, scale), "bold")
-        self.ui = ("Segoe UI", get_scaled_font(10, scale))
-        self.ui_bold = ("Segoe UI", get_scaled_font(10, scale), "bold")
-        self.mono = ("Consolas", get_scaled_font(10, scale))
-        self.stat = ("Segoe UI", get_scaled_font(16, scale), "bold")
-        self.small = ("Segoe UI", get_scaled_font(8, scale))
+
+class ScrollableFrame(ttk.Frame):
+    def __init__(self, container, frame_kwargs=None, bg_color=None, *args, **kwargs):
+        super().__init__(container, *args, **kwargs)
+        if frame_kwargs is None:
+            frame_kwargs = {}
+        if bg_color is None:
+            bg_color = BG
+
+        self.canvas = tk.Canvas(self, bg=bg_color, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas, **frame_kwargs)
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(
+                scrollregion=self.canvas.bbox("all")
+            )
+        )
+
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        
+        self.canvas.bind('<Configure>', self._on_canvas_configure)
+
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+
+        self.canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        self.bind_all("<MouseWheel>", self._on_mousewheel)
+
+    def _on_canvas_configure(self, event):
+        self.canvas.itemconfig(self.canvas_window, width=event.width)
+
+    def _on_mousewheel(self, event):
+        try:
+            x, y = self.winfo_pointerxy()
+            widget_under_mouse = self.winfo_containing(x, y)
+            
+            if not widget_under_mouse:
+                return
+                
+            parent = widget_under_mouse
+            is_inside = False
+            while parent:
+                if parent == self:
+                    is_inside = True
+                    break
+                parent = parent.master
+                
+            if not is_inside:
+                return
+                
+            widget_class = widget_under_mouse.winfo_class() if hasattr(widget_under_mouse, 'winfo_class') else ''
+            if widget_class in ('Text', 'Treeview'):
+                return
+                
+            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        except Exception:
+            pass
+
 
 class BatchAccountDialog(tk.Toplevel):
     """
     Modal Dialog modern untuk input massal (Batch) Username & Password SIP.
     """
-    def __init__(self, parent, source_path, scale=1.0):
+    def __init__(self, parent, source_path):
         super().__init__(parent)
         self.source_path = source_path
-        self.scale = scale
-        self.fonts = ScaledFonts(scale)
         self.title("⚡ Batch Add Akun SIP")
-        self.geometry(f"{int(680*scale)}x{int(520*scale)}")
-        self.minsize(int(600*scale), int(440*scale))
+        self.geometry("680x520")
+        self.minsize(600, 440)
         self.configure(bg=BG_PANEL)
         self.transient(parent)
         self.grab_set()
@@ -434,36 +484,37 @@ class BatchAccountDialog(tk.Toplevel):
         self._build_ui()
 
     def _build_ui(self):
-        root_frame = ttk.Frame(self, padding=int(20*self.scale), style="Panel.TFrame")
-        root_frame.pack(fill="both", expand=True)
+        sf = ScrollableFrame(self, frame_kwargs={"padding": 20, "style": "Panel.TFrame"}, bg_color=BG_PANEL)
+        sf.pack(fill="both", expand=True)
+        root_frame = sf.scrollable_frame
 
         # Header Title
         ttk.Label(root_frame, text="⚡ Batch Input Akun SIP", style="PanelHeading.TLabel").pack(anchor="w")
         ttk.Label(root_frame,
                   text="Masukkan username di kolom kiri & password di kolom kanan (1 per baris).\n"
                        "Sistem akan otomatis memasangkan baris ke-N username dengan baris ke-N password.",
-                  style="Muted.TLabel").pack(anchor="w", pady=(int(2*self.scale), int(12*self.scale)))
+                  style="Muted.TLabel").pack(anchor="w", pady=(2, 12))
 
         # SIP Server & Domain row
         sf = ttk.Frame(root_frame, style="Panel.TFrame")
-        sf.pack(fill="x", pady=(0, int(12*self.scale)))
+        sf.pack(fill="x", pady=(0, 12))
 
         ttk.Label(sf, text="SIP Server:", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
         self.server_var = tk.StringVar(value="agent.vocallink.ai:6060")
-        ttk.Entry(sf, textvariable=self.server_var, font=self.fonts.ui).grid(
-            row=0, column=1, sticky="ew", padx=(int(8*self.scale), int(16*self.scale)))
+        ttk.Entry(sf, textvariable=self.server_var, font=FONT_UI).grid(
+            row=0, column=1, sticky="ew", padx=(8, 16))
 
         ttk.Label(sf, text="Domain/Proxy:", style="Panel.TLabel").grid(row=0, column=2, sticky="w")
         self.domain_var = tk.StringVar()
-        ttk.Entry(sf, textvariable=self.domain_var, font=self.fonts.ui).grid(
-            row=0, column=3, sticky="ew", padx=(int(8*self.scale), 0))
+        ttk.Entry(sf, textvariable=self.domain_var, font=FONT_UI).grid(
+            row=0, column=3, sticky="ew", padx=(8, 0))
 
         sf.columnconfigure(1, weight=1)
         sf.columnconfigure(3, weight=1)
 
-        # Pinned Bottom Buttons
+        # Pinned Bottom Buttons (so they are NEVER cut off)
         btn_box = ttk.Frame(root_frame, style="Panel.TFrame")
-        btn_box.pack(side="bottom", fill="x", pady=(int(12*self.scale), 0))
+        btn_box.pack(side="bottom", fill="x", pady=(12, 0))
 
         self.count_badge_var = tk.StringVar(value="0 Akun Siap Dibuat")
         ttk.Label(btn_box, textvariable=self.count_badge_var, style="Muted.TLabel").pack(side="left", anchor="c")
@@ -471,7 +522,7 @@ class BatchAccountDialog(tk.Toplevel):
         ttk.Button(btn_box, text="⚡ Buat Semua Instansi SIP", style="Accent.TButton",
                    command=self._generate_clicked).pack(side="right")
         ttk.Button(btn_box, text="Batal", style="Secondary.TButton",
-                   command=self.destroy).pack(side="right", padx=(0, int(8*self.scale)))
+                   command=self.destroy).pack(side="right", padx=(0, 8))
 
         # Dual Text Area Container
         dual = ttk.Frame(root_frame, style="Panel.TFrame")
@@ -482,21 +533,21 @@ class BatchAccountDialog(tk.Toplevel):
 
         # Column Headers
         ttk.Label(dual, text="Username / Ekstensi", style="PanelHeading.TLabel").grid(
-            row=0, column=0, sticky="w", padx=(0, int(4*self.scale)), pady=(0, int(4*self.scale)))
+            row=0, column=0, sticky="w", padx=(0, 4), pady=(0, 4))
         ttk.Label(dual, text="Password SIP", style="PanelHeading.TLabel").grid(
-            row=0, column=1, sticky="w", padx=(int(4*self.scale), 0), pady=(0, int(4*self.scale)))
+            row=0, column=1, sticky="w", padx=(4, 0), pady=(0, 4))
 
         # Username textarea
         self.user_text = tk.Text(
             dual, bg=BG_INPUT, fg=FG, insertbackground=FG,
-            font=self.fonts.mono, relief="flat", padx=int(10*self.scale), pady=int(8*self.scale), wrap="none")
-        self.user_text.grid(row=1, column=0, sticky="nsew", padx=(0, int(4*self.scale)))
+            font=FONT_MONO, relief="flat", padx=10, pady=8, wrap="none", height=10)
+        self.user_text.grid(row=1, column=0, sticky="nsew", padx=(0, 4))
 
         # Password textarea
         self.pass_text = tk.Text(
             dual, bg=BG_INPUT, fg=FG, insertbackground=FG,
-            font=self.fonts.mono, relief="flat", padx=int(10*self.scale), pady=int(8*self.scale), wrap="none")
-        self.pass_text.grid(row=1, column=1, sticky="nsew", padx=(int(4*self.scale), 0))
+            font=FONT_MONO, relief="flat", padx=10, pady=8, wrap="none", height=10)
+        self.pass_text.grid(row=1, column=1, sticky="nsew", padx=(4, 0))
 
         # Bind KeyRelease to update count badge
         self.user_text.bind("<KeyRelease>", self._update_count)
@@ -539,15 +590,11 @@ class BatchAccountDialog(tk.Toplevel):
 
 class SingleAccountDialog(tk.Toplevel):
     """Modal Dialog modern untuk Setup 1 Akun SIP."""
-    def __init__(self, parent, instance_exe_path, scale=1.0):
+    def __init__(self, parent, instance_exe_path):
         super().__init__(parent)
         self.instance_exe_path = instance_exe_path
-        self.scale = scale
-        self.fonts = ScaledFonts(scale)
         self.title("⚙️ Setup Akun SIP MicroSIP")
-        width = int(480 * scale)
-        height = int(420 * scale)
-        self.geometry(f"{width}x{height}")
+        self.geometry("480x420")
         self.resizable(False, False)
         self.configure(bg=BG_PANEL)
         self.transient(parent)
@@ -557,35 +604,36 @@ class SingleAccountDialog(tk.Toplevel):
         self._build_ui()
 
     def _build_ui(self):
-        container = ttk.Frame(self, padding=int(20*self.scale), style="Panel.TFrame")
-        container.pack(fill="both", expand=True)
+        sf = ScrollableFrame(self, frame_kwargs={"padding": 20, "style": "Panel.TFrame"}, bg_color=BG_PANEL)
+        sf.pack(fill="both", expand=True)
+        container = sf.scrollable_frame
 
         ttk.Label(container, text="Pengaturan Akun SIP", style="PanelHeading.TLabel").pack(anchor="w")
         inst_name = os.path.basename(os.path.dirname(self.instance_exe_path))
-        ttk.Label(container, text=f"Instansi: {inst_name}\\MicroSIP.exe", style="Muted.TLabel").pack(anchor="w", pady=(0, int(14*self.scale)))
+        ttk.Label(container, text=f"Instansi: {inst_name}\\MicroSIP.exe", style="Muted.TLabel").pack(anchor="w", pady=(0, 14))
 
         form_frame = ttk.Frame(container, style="Panel.TFrame")
-        form_frame.pack(fill="x", pady=(0, int(14*self.scale)))
+        form_frame.pack(fill="x", pady=(0, 14))
 
-        ttk.Label(form_frame, text="SIP Server (IP:Port):", style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=int(6*self.scale))
+        ttk.Label(form_frame, text="SIP Server (IP:Port):", style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=6)
         self.server_var = tk.StringVar(value=self.account_data.get("server", ""))
-        ttk.Entry(form_frame, textvariable=self.server_var, font=self.fonts.ui).grid(row=0, column=1, sticky="ew", pady=int(6*self.scale), padx=(int(10*self.scale), 0))
+        ttk.Entry(form_frame, textvariable=self.server_var, font=FONT_UI).grid(row=0, column=1, sticky="ew", pady=6, padx=(10, 0))
 
-        ttk.Label(form_frame, text="Domain / Proxy (opsional):", style="Panel.TLabel").grid(row=1, column=0, sticky="w", pady=int(6*self.scale))
+        ttk.Label(form_frame, text="Domain / Proxy (opsional):", style="Panel.TLabel").grid(row=1, column=0, sticky="w", pady=6)
         self.domain_var = tk.StringVar(value=self.account_data.get("domain", ""))
-        ttk.Entry(form_frame, textvariable=self.domain_var, font=self.fonts.ui).grid(row=1, column=1, sticky="ew", pady=int(6*self.scale), padx=(int(10*self.scale), 0))
+        ttk.Entry(form_frame, textvariable=self.domain_var, font=FONT_UI).grid(row=1, column=1, sticky="ew", pady=6, padx=(10, 0))
 
-        ttk.Label(form_frame, text="Username / Ekstensi:", style="Panel.TLabel").grid(row=2, column=0, sticky="w", pady=int(6*self.scale))
+        ttk.Label(form_frame, text="Username / Ekstensi:", style="Panel.TLabel").grid(row=2, column=0, sticky="w", pady=6)
         self.username_var = tk.StringVar(value=self.account_data.get("username", ""))
-        ttk.Entry(form_frame, textvariable=self.username_var, font=self.fonts.ui).grid(row=2, column=1, sticky="ew", pady=int(6*self.scale), padx=(int(10*self.scale), 0))
+        ttk.Entry(form_frame, textvariable=self.username_var, font=FONT_UI).grid(row=2, column=1, sticky="ew", pady=6, padx=(10, 0))
 
-        ttk.Label(form_frame, text="Password SIP:", style="Panel.TLabel").grid(row=3, column=0, sticky="w", pady=int(6*self.scale))
+        ttk.Label(form_frame, text="Password SIP:", style="Panel.TLabel").grid(row=3, column=0, sticky="w", pady=6)
         self.password_var = tk.StringVar(value=self.account_data.get("password", ""))
-        ttk.Entry(form_frame, textvariable=self.password_var, font=self.fonts.ui, show="*").grid(row=3, column=1, sticky="ew", pady=int(6*self.scale), padx=(int(10*self.scale), 0))
+        ttk.Entry(form_frame, textvariable=self.password_var, font=FONT_UI, show="*").grid(row=3, column=1, sticky="ew", pady=6, padx=(10, 0))
 
-        ttk.Label(form_frame, text="Display Name / Label:", style="Panel.TLabel").grid(row=4, column=0, sticky="w", pady=int(6*self.scale))
+        ttk.Label(form_frame, text="Display Name / Label:", style="Panel.TLabel").grid(row=4, column=0, sticky="w", pady=6)
         self.display_var = tk.StringVar(value=self.account_data.get("displayname", ""))
-        ttk.Entry(form_frame, textvariable=self.display_var, font=self.fonts.ui).grid(row=4, column=1, sticky="ew", pady=int(6*self.scale), padx=(int(10*self.scale), 0))
+        ttk.Entry(form_frame, textvariable=self.display_var, font=FONT_UI).grid(row=4, column=1, sticky="ew", pady=6, padx=(10, 0))
 
         form_frame.columnconfigure(1, weight=1)
 
@@ -593,7 +641,7 @@ class SingleAccountDialog(tk.Toplevel):
         btn_box.pack(fill="x", side="bottom")
 
         ttk.Button(btn_box, text="Simpan Akun SIP", style="Accent.TButton", command=self._save_clicked).pack(side="right")
-        ttk.Button(btn_box, text="Batal", style="Secondary.TButton", command=self.destroy).pack(side="right", padx=(0, int(8*self.scale)))
+        ttk.Button(btn_box, text="Batal", style="Secondary.TButton", command=self.destroy).pack(side="right", padx=(0, 8))
 
     def _save_clicked(self):
         server = self.server_var.get().strip()
@@ -619,14 +667,9 @@ class LicenseLoginWindow:
     """Tampilan GUI Login / Validasi Lisensi ArtaTools."""
     def __init__(self, root):
         self.root = root
-        self.scale = self._get_dpi_scale()
-        self.fonts = ScaledFonts(self.scale)
-        
         self.root.title("🔑 Otorisasi Lisensi — ARTA TOOLS PREMIUM ENGINE")
-        width = int(540 * self.scale)
-        height = int(440 * self.scale)
-        self.root.geometry(f"{width}x{height}")
-        self.root.minsize(int(500*self.scale), int(400*self.scale))
+        self.root.geometry("540x440")
+        self.root.minsize(500, 400)
         self.root.configure(bg=BG)
 
         self._build_style()
@@ -638,27 +681,6 @@ class LicenseLoginWindow:
             self.key_var.set(saved_key)
             self.root.after(300, self._start_validation_thread)
 
-    def _get_dpi_scale(self):
-        """Get DPI scaling factor for the current display"""
-        try:
-            import ctypes
-            # Get DPI awareness
-            try:
-                ctypes.windll.shcore.SetProcessDpiAwareness(1)
-            except:
-                pass
-            
-            # Get DPI for primary monitor
-            hdc = ctypes.windll.user32.GetDC(0)
-            dpi_x = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
-            ctypes.windll.user32.ReleaseDC(0, hdc)
-            
-            # Standard DPI is 96
-            scale = dpi_x / 96.0
-            return max(0.8, min(scale, 2.0))  # Clamp between 0.8 and 2.0
-        except:
-            return 1.0
-
     def _build_style(self):
         style = ttk.Style()
         try:
@@ -668,45 +690,46 @@ class LicenseLoginWindow:
 
         style.configure("TFrame", background=BG)
         style.configure("Panel.TFrame", background=BG_PANEL)
-        style.configure("TLabel", background=BG, foreground=FG, font=self.fonts.ui)
-        style.configure("Muted.TLabel", background=BG_PANEL, foreground=MUTED, font=self.fonts.subtitle)
-        style.configure("PanelHeading.TLabel", background=BG_PANEL, foreground=FG, font=self.fonts.heading)
-        style.configure("HeaderTitle.TLabel", background=BG, foreground=FG, font=self.fonts.title)
-        style.configure("HeaderSub.TLabel", background=BG, foreground=MUTED, font=self.fonts.subtitle)
+        style.configure("TLabel", background=BG, foreground=FG, font=FONT_UI)
+        style.configure("Muted.TLabel", background=BG_PANEL, foreground=MUTED, font=FONT_SUBTITLE)
+        style.configure("PanelHeading.TLabel", background=BG_PANEL, foreground=FG, font=FONT_HEADING)
+        style.configure("HeaderTitle.TLabel", background=BG, foreground=FG, font=FONT_TITLE)
+        style.configure("HeaderSub.TLabel", background=BG, foreground=MUTED, font=FONT_SUBTITLE)
 
         style.configure("Accent.TButton", background=ACCENT, foreground="white",
-                        font=self.fonts.ui_bold, padding=(int(14*self.scale), int(8*self.scale)), borderwidth=0)
+                        font=FONT_UI_BOLD, padding=(14, 8), borderwidth=0)
         style.map("Accent.TButton", background=[("active", ACCENT_HOVER), ("disabled", "#374151")])
 
     def _build_ui(self):
-        main_container = ttk.Frame(self.root, padding=int(24*self.scale))
-        main_container.pack(fill="both", expand=True)
+        sf = ScrollableFrame(self.root, frame_kwargs={"padding": 24}, bg_color=BG)
+        sf.pack(fill="both", expand=True)
+        main_container = sf.scrollable_frame
 
         # Header Title
         header = ttk.Frame(main_container)
-        header.pack(fill="x", pady=(0, int(20*self.scale)))
+        header.pack(fill="x", pady=(0, 20))
 
         ttk.Label(header, text="🔑 ARTA TOOLS PREMIUM ENGINE", style="HeaderTitle.TLabel").pack(anchor="center")
-        ttk.Label(header, text="v1.0 — Sistem Verifikasi & Otorisasi Lisensi Resmi", style="HeaderSub.TLabel").pack(anchor="center", pady=(int(4*self.scale), 0))
+        ttk.Label(header, text="v1.0 — Sistem Verifikasi & Otorisasi Lisensi Resmi", style="HeaderSub.TLabel").pack(anchor="center", pady=(4, 0))
 
         # Panel Card Login
-        panel = ttk.Frame(main_container, style="Panel.TFrame", padding=int(20*self.scale))
+        panel = ttk.Frame(main_container, style="Panel.TFrame", padding=20)
         panel.pack(fill="both", expand=True)
 
-        ttk.Label(panel, text="Masukkan Key Lisensi Anda:", style="PanelHeading.TLabel").pack(anchor="w", pady=(0, int(8*self.scale)))
+        ttk.Label(panel, text="Masukkan Key Lisensi Anda:", style="PanelHeading.TLabel").pack(anchor="w", pady=(0, 8))
 
         self.key_var = tk.StringVar()
-        self.key_entry = ttk.Entry(panel, textvariable=self.key_var, font=("Consolas", int(11*self.scale)))
-        self.key_entry.pack(fill="x", pady=(0, int(14*self.scale)))
+        self.key_entry = ttk.Entry(panel, textvariable=self.key_var, font=("Consolas", 11))
+        self.key_entry.pack(fill="x", pady=(0, 14))
         self.key_entry.focus()
 
         # Status / Feedback Message Label
         self.status_var = tk.StringVar(value="Masukkan License Key dan klik Verifikasi.")
         self.status_label = tk.Label(
             panel, textvariable=self.status_var, bg=BG_PANEL, fg=MUTED,
-            font=self.fonts.subtitle, wraplength=int(440*self.scale), justify="center"
+            font=FONT_SUBTITLE, wraplength=440, justify="center"
         )
-        self.status_label.pack(fill="x", pady=(0, int(14*self.scale)))
+        self.status_label.pack(fill="x", pady=(0, 14))
 
         # Action Buttons
         btn_box = ttk.Frame(panel, style="Panel.TFrame")
@@ -755,21 +778,16 @@ class LicenseLoginWindow:
     def _launch_main_app(self, response_data):
         for widget in self.root.winfo_children():
             widget.destroy()
-        app = ArtCallerApp(self.root, license_data=response_data, scale=self.scale)
+        app = ArtCallerApp(self.root, license_data=response_data)
 
 
 class ArtCallerApp:
-    def __init__(self, root, license_data=None, scale=1.0):
+    def __init__(self, root, license_data=None):
         self.root = root
-        self.scale = scale
-        self.fonts = ScaledFonts(scale)
         self.license_data = license_data or {}
-        
         self.root.title("Art Caller — Multi-MicroSIP Auto Call")
-        width = int(920 * scale)
-        height = int(760 * scale)
-        self.root.geometry(f"{width}x{height}")
-        self.root.minsize(int(840*scale), int(660*scale))
+        self.root.geometry("920x760")
+        self.root.minsize(840, 660)
         self.root.configure(bg=BG)
 
         self.log_queue = queue.Queue()
@@ -781,26 +799,6 @@ class ArtCallerApp:
         self._build_ui()
         self._auto_detect_on_start()
         self._poll_log_queue()
-        
-        # Handle window resize to maintain proportions
-        self.root.bind("<Configure>", self._on_window_resize)
-
-    def _on_window_resize(self, event):
-        """Handle window resize to adjust UI elements if needed"""
-        if event.widget == self.root:
-            # Update column widths based on current window width
-            width = self.root.winfo_width()
-            if hasattr(self, 'tree'):
-                # Adjust tree column widths proportionally
-                path_width = int(width * 0.37)
-                user_width = int(width * 0.15)
-                server_width = int(width * 0.20)
-                status_width = int(width * 0.10)
-                
-                self.tree.column("path", width=max(200, path_width))
-                self.tree.column("user", width=max(80, user_width))
-                self.tree.column("server", width=max(100, server_width))
-                self.tree.column("status", width=max(60, status_width))
 
     def _build_style(self):
         style = ttk.Style()
@@ -813,35 +811,35 @@ class ArtCallerApp:
         style.configure("Panel.TFrame", background=BG_PANEL)
         style.configure("Card.TFrame", background=BG_CARD)
 
-        style.configure("TLabel", background=BG, foreground=FG, font=self.fonts.ui)
-        style.configure("Muted.TLabel", background=BG, foreground=MUTED, font=self.fonts.subtitle)
-        style.configure("Panel.TLabel", background=BG_PANEL, foreground=FG, font=self.fonts.ui)
-        style.configure("PanelHeading.TLabel", background=BG_PANEL, foreground=FG, font=self.fonts.heading)
-        style.configure("HeaderTitle.TLabel", background=BG, foreground=FG, font=self.fonts.title)
-        style.configure("HeaderSub.TLabel", background=BG, foreground=MUTED, font=self.fonts.subtitle)
+        style.configure("TLabel", background=BG, foreground=FG, font=FONT_UI)
+        style.configure("Muted.TLabel", background=BG, foreground=MUTED, font=FONT_SUBTITLE)
+        style.configure("Panel.TLabel", background=BG_PANEL, foreground=FG, font=FONT_UI)
+        style.configure("PanelHeading.TLabel", background=BG_PANEL, foreground=FG, font=FONT_HEADING)
+        style.configure("HeaderTitle.TLabel", background=BG, foreground=FG, font=FONT_TITLE)
+        style.configure("HeaderSub.TLabel", background=BG, foreground=MUTED, font=FONT_SUBTITLE)
 
-        style.configure("CardLabel.TLabel", background=BG_CARD, foreground=MUTED, font=self.fonts.subtitle)
-        style.configure("CardVal.TLabel", background=BG_CARD, foreground=FG, font=self.fonts.stat)
+        style.configure("CardLabel.TLabel", background=BG_CARD, foreground=MUTED, font=FONT_SUBTITLE)
+        style.configure("CardVal.TLabel", background=BG_CARD, foreground=FG, font=FONT_STAT)
 
         style.configure("TEntry", fieldbackground=BG_INPUT, foreground=FG, insertcolor=FG, borderwidth=0)
-        style.configure("TSpinbox", fieldbackground=BG_INPUT, foreground=FG, arrowsize=int(14*self.scale))
+        style.configure("TSpinbox", fieldbackground=BG_INPUT, foreground=FG, arrowsize=14)
 
         style.configure("Accent.TButton", background=ACCENT, foreground="white",
-                        font=self.fonts.ui_bold, padding=(int(14*self.scale), int(7*self.scale)), borderwidth=0)
+                        font=FONT_UI_BOLD, padding=(14, 7), borderwidth=0)
         style.map("Accent.TButton", background=[("active", ACCENT_HOVER), ("disabled", "#374151")])
 
         style.configure("Danger.TButton", background=DANGER, foreground="white",
-                        font=self.fonts.ui_bold, padding=(int(14*self.scale), int(7*self.scale)), borderwidth=0)
+                        font=FONT_UI_BOLD, padding=(14, 7), borderwidth=0)
         style.map("Danger.TButton", background=[("active", DANGER_HOVER), ("disabled", "#374151")])
 
         style.configure("Secondary.TButton", background="#334155", foreground=FG,
-                        font=self.fonts.ui, padding=(int(10*self.scale), int(5*self.scale)), borderwidth=0)
+                        font=FONT_UI, padding=(10, 5), borderwidth=0)
         style.map("Secondary.TButton", background=[("active", "#475569")])
 
         style.configure("Horizontal.TProgressbar", troughcolor=BG_PANEL, background=ACCENT,
                         borderwidth=0, lightcolor=ACCENT, darkcolor=ACCENT)
 
-        style.configure("TCheckbutton", background=BG_PANEL, foreground=FG, font=self.fonts.ui_bold)
+        style.configure("TCheckbutton", background=BG_PANEL, foreground=FG, font=FONT_UI_BOLD)
         style.map("TCheckbutton", background=[("active", BG_PANEL)], foreground=[("active", ACCENT)])
 
         # Treeview Styling (Modern Table)
@@ -849,25 +847,26 @@ class ArtCallerApp:
                         background=BG_INPUT,
                         foreground=FG,
                         fieldbackground=BG_INPUT,
-                        rowheight=int(30*self.scale),
-                        font=self.fonts.ui,
+                        rowheight=30,
+                        font=FONT_UI,
                         borderwidth=0)
         style.configure("Treeview.Heading",
                         background=BG_PANEL,
                         foreground=FG,
-                        font=self.fonts.ui_bold,
-                        padding=(int(6*self.scale), int(6*self.scale)))
+                        font=FONT_UI_BOLD,
+                        padding=(6, 6))
         style.map("Treeview",
                   background=[("selected", ACCENT)],
                   foreground=[("selected", "#ffffff")])
 
     def _build_ui(self):
-        main_container = ttk.Frame(self.root, padding=int(20*self.scale))
-        main_container.pack(fill="both", expand=True)
+        sf = ScrollableFrame(self.root, frame_kwargs={"padding": 20}, bg_color=BG)
+        sf.pack(fill="both", expand=True)
+        main_container = sf.scrollable_frame
 
         # 1. Header Row
         header = ttk.Frame(main_container)
-        header.pack(fill="x", pady=(0, int(16*self.scale)))
+        header.pack(fill="x", pady=(0, 16))
 
         title_box = ttk.Frame(header)
         title_box.pack(side="left")
@@ -882,16 +881,16 @@ class ArtCallerApp:
         # Status Badge
         self.status_badge_var = tk.StringVar(value=" READY ")
         self.status_label = tk.Label(header, textvariable=self.status_badge_var,
-                                     bg=SUCCESS, fg="#ffffff", font=("Segoe UI", int(9*self.scale), "bold"),
-                                     padx=int(14*self.scale), pady=int(4*self.scale))
+                                     bg=SUCCESS, fg="#ffffff", font=("Segoe UI", 9, "bold"),
+                                     padx=14, pady=4)
         self.status_label.pack(side="right", anchor="c")
 
         # 2. Multi-MicroSIP Management Panel with Modern Treeview Table
-        path_panel = ttk.Frame(main_container, style="Panel.TFrame", padding=int(14*self.scale))
-        path_panel.pack(fill="both", expand=True, pady=(0, int(12*self.scale)))
+        path_panel = ttk.Frame(main_container, style="Panel.TFrame", padding=14)
+        path_panel.pack(fill="both", expand=True, pady=(0, 12))
 
         panel_top = ttk.Frame(path_panel, style="Panel.TFrame")
-        panel_top.pack(fill="x", pady=(0, int(8*self.scale)))
+        panel_top.pack(fill="x", pady=(0, 8))
         ttk.Label(panel_top, text="Daftar Instansi MicroSIP & Akun SIP", style="PanelHeading.TLabel").pack(side="left")
 
         self.instance_count_var = tk.StringVar(value="0 Instansi Terdaftar")
@@ -899,7 +898,7 @@ class ArtCallerApp:
 
         # Treeview Table replacing old listbox
         tree_frame = ttk.Frame(path_panel, style="Panel.TFrame")
-        tree_frame.pack(fill="both", expand=True, pady=(0, int(10*self.scale)))
+        tree_frame.pack(fill="both", expand=True, pady=(0, 10))
 
         columns = ("num", "path", "user", "server", "status")
         self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=5)
@@ -910,13 +909,11 @@ class ArtCallerApp:
         self.tree.heading("server", text="SIP Server")
         self.tree.heading("status", text="Status INI")
 
-        # Set initial column widths based on window size
-        width = self.root.winfo_width() if self.root.winfo_width() > 100 else 920
-        self.tree.column("num", width=int(40*self.scale), anchor="center", stretch=False)
-        self.tree.column("path", width=int(width*0.37), anchor="w", stretch=True)
-        self.tree.column("user", width=int(width*0.15), anchor="w", stretch=True)
-        self.tree.column("server", width=int(width*0.20), anchor="w", stretch=True)
-        self.tree.column("status", width=int(width*0.10), anchor="center", stretch=False)
+        self.tree.column("num", width=40, anchor="center", stretch=False)
+        self.tree.column("path", width=340, anchor="w", stretch=True)
+        self.tree.column("user", width=140, anchor="w", stretch=True)
+        self.tree.column("server", width=180, anchor="w", stretch=True)
+        self.tree.column("status", width=100, anchor="center", stretch=False)
 
         self.tree.pack(side="left", fill="both", expand=True)
 
@@ -929,45 +926,45 @@ class ArtCallerApp:
         btn_row.pack(fill="x")
 
         ttk.Button(btn_row, text="⚡ Tabel Batch Input Akun", style="Accent.TButton",
-                   command=self._batch_account_clicked).pack(side="left", padx=(0, int(8*self.scale)))
+                   command=self._batch_account_clicked).pack(side="left", padx=(0, 8))
         ttk.Button(btn_row, text="⚙️ Edit Akun SIP", style="Secondary.TButton",
-                   command=self._setup_account_clicked).pack(side="left", padx=(0, int(8*self.scale)))
+                   command=self._setup_account_clicked).pack(side="left", padx=(0, 8))
         ttk.Button(btn_row, text="🔍 Auto-Detect", style="Secondary.TButton",
-                   command=self._auto_detect_all_clicked).pack(side="left", padx=(0, int(8*self.scale)))
+                   command=self._auto_detect_all_clicked).pack(side="left", padx=(0, 8))
         ttk.Button(btn_row, text="🗑 Hapus Instansi & Folder", style="Danger.TButton",
                    command=self._remove_selected_clicked).pack(side="left")
 
         # 3. Dashboard Info Cards
         cards_frame = ttk.Frame(main_container)
-        cards_frame.pack(fill="x", pady=(0, int(12*self.scale)))
+        cards_frame.pack(fill="x", pady=(0, 12))
         cards_frame.columnconfigure(0, weight=1)
         cards_frame.columnconfigure(1, weight=1)
         cards_frame.columnconfigure(2, weight=1)
 
-        c1 = ttk.Frame(cards_frame, style="Card.TFrame", padding=int(12*self.scale))
-        c1.grid(row=0, column=0, sticky="ew", padx=(0, int(4*self.scale)))
+        c1 = ttk.Frame(cards_frame, style="Card.TFrame", padding=12)
+        c1.grid(row=0, column=0, sticky="ew", padx=(0, 4))
         ttk.Label(c1, text="Status Mode", style="CardLabel.TLabel").pack(anchor="w")
         self.card_mode_var = tk.StringVar(value="Standby")
-        ttk.Label(c1, textvariable=self.card_mode_var, style="CardVal.TLabel").pack(anchor="w", pady=(int(2*self.scale), 0))
+        ttk.Label(c1, textvariable=self.card_mode_var, style="CardVal.TLabel").pack(anchor="w", pady=(2, 0))
 
-        c2 = ttk.Frame(cards_frame, style="Card.TFrame", padding=int(12*self.scale))
-        c2.grid(row=0, column=1, sticky="ew", padx=(int(4*self.scale), int(4*self.scale)))
+        c2 = ttk.Frame(cards_frame, style="Card.TFrame", padding=12)
+        c2.grid(row=0, column=1, sticky="ew", padx=(4, 4))
         ttk.Label(c2, text="Aktif MicroSIP", style="CardLabel.TLabel").pack(anchor="w")
         self.card_inst_var = tk.StringVar(value="0 Instansi")
-        ttk.Label(c2, textvariable=self.card_inst_var, style="CardVal.TLabel").pack(anchor="w", pady=(int(2*self.scale), 0))
+        ttk.Label(c2, textvariable=self.card_inst_var, style="CardVal.TLabel").pack(anchor="w", pady=(2, 0))
 
-        c3 = ttk.Frame(cards_frame, style="Card.TFrame", padding=int(12*self.scale))
-        c3.grid(row=0, column=2, sticky="ew", padx=(int(4*self.scale), 0))
+        c3 = ttk.Frame(cards_frame, style="Card.TFrame", padding=12)
+        c3.grid(row=0, column=2, sticky="ew", padx=(4, 0))
         ttk.Label(c3, text="Struktur Folder", style="CardLabel.TLabel").pack(anchor="w")
         self.card_rot_var = tk.StringVar(value="C:\\ArtCaller\\SIP<N>\\MicroSIP.exe")
-        ttk.Label(c3, textvariable=self.card_rot_var, style="CardVal.TLabel").pack(anchor="w", pady=(int(2*self.scale), 0))
+        ttk.Label(c3, textvariable=self.card_rot_var, style="CardVal.TLabel").pack(anchor="w", pady=(2, 0))
 
         # 4. Panel Input Nomor Tujuan
-        phone_panel = ttk.Frame(main_container, style="Panel.TFrame", padding=int(14*self.scale))
-        phone_panel.pack(fill="x", pady=(0, int(12*self.scale)))
+        phone_panel = ttk.Frame(main_container, style="Panel.TFrame", padding=14)
+        phone_panel.pack(fill="x", pady=(0, 12))
 
         phone_top = ttk.Frame(phone_panel, style="Panel.TFrame")
-        phone_top.pack(fill="x", pady=(0, int(6*self.scale)))
+        phone_top.pack(fill="x", pady=(0, 6))
         ttk.Label(phone_top, text="📞 Daftar Nomor Tujuan (1 Nomor per Baris)", style="PanelHeading.TLabel").pack(side="left")
 
         self.phone_count_var = tk.StringVar(value="3 Nomor Terdeteksi")
@@ -978,7 +975,7 @@ class ArtCallerApp:
 
         self.phone_text = tk.Text(
             phone_frame, height=4, bg=BG_INPUT, fg=FG, insertbackground=FG,
-            font=self.fonts.mono, relief="flat", padx=int(10*self.scale), pady=int(8*self.scale), wrap="none")
+            font=FONT_MONO, relief="flat", padx=10, pady=8, wrap="none")
         self.phone_text.pack(side="left", fill="x", expand=True)
 
         phone_scroll = ttk.Scrollbar(phone_frame, orient="vertical", command=self.phone_text.yview)
@@ -992,37 +989,37 @@ class ArtCallerApp:
         self.phone_text.bind("<KeyRelease>", self._update_phone_count)
 
         # 5. Settings Panel
-        settings_panel = ttk.Frame(main_container, style="Panel.TFrame", padding=int(14*self.scale))
-        settings_panel.pack(fill="x", pady=(0, int(12*self.scale)))
+        settings_panel = ttk.Frame(main_container, style="Panel.TFrame", padding=14)
+        settings_panel.pack(fill="x", pady=(0, 12))
 
-        ttk.Label(settings_panel, text="Pengaturan Durasi Panggilan & Jeda", style="PanelHeading.TLabel").pack(anchor="w", pady=(0, int(8*self.scale)))
+        ttk.Label(settings_panel, text="Pengaturan Durasi Panggilan & Jeda", style="PanelHeading.TLabel").pack(anchor="w", pady=(0, 8))
 
         sett_row = ttk.Frame(settings_panel, style="Panel.TFrame")
         sett_row.pack(fill="x")
 
         col1 = ttk.Frame(sett_row, style="Panel.TFrame")
-        col1.pack(side="left", padx=(0, int(40*self.scale)))
+        col1.pack(side="left", padx=(0, 40))
         ttk.Label(col1, text="Tunggu Sebelum Hangup (Detik):", style="Panel.TLabel").pack(anchor="w")
         self.dial_wait_var = tk.StringVar(value="20")
-        dial_spin = ttk.Spinbox(col1, from_=1, to=120, textvariable=self.dial_wait_var, width=10, font=self.fonts.ui)
-        dial_spin.pack(anchor="w", pady=(int(4*self.scale), 0))
+        dial_spin = ttk.Spinbox(col1, from_=1, to=120, textvariable=self.dial_wait_var, width=10, font=FONT_UI)
+        dial_spin.pack(anchor="w", pady=(4, 0))
 
         col2 = ttk.Frame(sett_row, style="Panel.TFrame")
-        col2.pack(side="left", padx=(0, int(40*self.scale)))
+        col2.pack(side="left", padx=(0, 40))
         ttk.Label(col2, text="Jeda Antar Panggilan (Detik):", style="Panel.TLabel").pack(anchor="w")
         self.hangup_wait_var = tk.StringVar(value="2")
-        delay_spin = ttk.Spinbox(col2, from_=0, to=60, textvariable=self.hangup_wait_var, width=10, font=self.fonts.ui)
-        delay_spin.pack(anchor="w", pady=(int(4*self.scale), 0))
+        delay_spin = ttk.Spinbox(col2, from_=0, to=60, textvariable=self.hangup_wait_var, width=10, font=FONT_UI)
+        delay_spin.pack(anchor="w", pady=(4, 0))
 
         col3 = ttk.Frame(sett_row, style="Panel.TFrame")
         col3.pack(side="left")
         ttk.Label(col3, text="Jumlah Pengulangan (Recall):", style="Panel.TLabel").pack(anchor="w")
 
         recall_box = ttk.Frame(col3, style="Panel.TFrame")
-        recall_box.pack(anchor="w", pady=(int(4*self.scale), 0))
+        recall_box.pack(anchor="w", pady=(4, 0))
 
         self.recall_var = tk.StringVar(value="1")
-        self.recall_spin = ttk.Spinbox(recall_box, from_=1, to=999, textvariable=self.recall_var, width=8, font=self.fonts.ui)
+        self.recall_spin = ttk.Spinbox(recall_box, from_=1, to=999, textvariable=self.recall_var, width=8, font=FONT_UI)
         self.recall_spin.pack(side="left")
 
         self.infinity_var = tk.BooleanVar(value=False)
@@ -1030,11 +1027,11 @@ class ArtCallerApp:
             recall_box, text="♾️ Infinity Loop", variable=self.infinity_var,
             command=self._toggle_infinity
         )
-        self.infinity_cb.pack(side="left", padx=(int(12*self.scale), 0))
+        self.infinity_cb.pack(side="left", padx=(12, 0))
 
         # 5. Action Bar & Progress
         action_row = ttk.Frame(main_container)
-        action_row.pack(fill="x", pady=(0, int(12*self.scale)))
+        action_row.pack(fill="x", pady=(0, 12))
 
         self.start_btn = ttk.Button(action_row, text="▶ Mulai Panggilan (Multi-Instance)", style="Accent.TButton",
                                      command=self._start_clicked)
@@ -1042,13 +1039,13 @@ class ArtCallerApp:
 
         self.stop_btn = ttk.Button(action_row, text="⏹ Berhenti", style="Danger.TButton",
                                      command=self._stop_clicked, state="disabled")
-        self.stop_btn.pack(side="left", padx=(int(8*self.scale), 0))
+        self.stop_btn.pack(side="left", padx=(8, 0))
 
         self.progress = ttk.Progressbar(action_row, mode="indeterminate", style="Horizontal.TProgressbar")
-        self.progress.pack(side="left", fill="x", expand=True, padx=(int(16*self.scale), 0))
+        self.progress.pack(side="left", fill="x", expand=True, padx=(16, 0))
 
         # 6. Activity Console / Log Panel
-        log_panel = ttk.Frame(main_container, style="Panel.TFrame", padding=int(14*self.scale))
+        log_panel = ttk.Frame(main_container, style="Panel.TFrame", padding=14)
         log_panel.pack(fill="both", expand=True)
 
         log_top = ttk.Frame(log_panel, style="Panel.TFrame")
@@ -1056,9 +1053,9 @@ class ArtCallerApp:
         ttk.Label(log_top, text="Log Aktivitas & Monitor Status Rotasi", style="PanelHeading.TLabel").pack(side="left")
         ttk.Button(log_top, text="Bersihkan Log", style="Secondary.TButton", command=self._clear_log).pack(side="right")
 
-        self.log_text = tk.Text(log_panel, height=6, bg=BG_INPUT, fg=FG, font=self.fonts.mono,
-                                 relief="flat", padx=int(12*self.scale), pady=int(10*self.scale), state="disabled")
-        self.log_text.pack(fill="both", expand=True, pady=(int(8*self.scale), 0))
+        self.log_text = tk.Text(log_panel, height=6, bg=BG_INPUT, fg=FG, font=FONT_MONO,
+                                 relief="flat", padx=12, pady=10, state="disabled")
+        self.log_text.pack(fill="both", expand=True, pady=(8, 0))
 
         self.log_text.tag_config("call", foreground="#34d399")
         self.log_text.tag_config("info", foreground=MUTED)
@@ -1137,7 +1134,7 @@ class ArtCallerApp:
             messagebox.showerror("Batal", "File MicroSIP sumber tidak ditemukan.")
             return
 
-        dlg = BatchAccountDialog(self.root, source_path, self.scale)
+        dlg = BatchAccountDialog(self.root, source_path)
         self.root.wait_window(dlg)
 
         if dlg.created_paths:
@@ -1160,7 +1157,7 @@ class ArtCallerApp:
             idx = int(selected[0])
             path = self.microsip_list[idx]
 
-        dlg = SingleAccountDialog(self.root, path, self.scale)
+        dlg = SingleAccountDialog(self.root, path)
         self.root.wait_window(dlg)
         self._refresh_listbox()
 
@@ -1280,11 +1277,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            # Enable DPI awareness for better scaling
-            try:
-                ctypes.windll.shcore.SetProcessDpiAwareness(1)
-            except:
-                pass
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
     else:
