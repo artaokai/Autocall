@@ -699,7 +699,7 @@ class ArtOTPApp:
         self.root.title("ArtOTP — OTP Spammer")
         self.root.geometry("1150x730")
         self.root.configure(bg=BG)
-        self.root.minsize(900, 600)
+        self.root.minsize(700, 450)
 
         self.running   = False
         self.stop_ev   = threading.Event()
@@ -724,14 +724,51 @@ class ArtOTPApp:
 
     def _ui(self):
         self._header()
-        main = tk.Frame(self.root, bg=BG)
-        main.pack(fill="both", expand=True, padx=14, pady=(0, 8))
-        main.columnconfigure(0, weight=4, minsize=370)
-        main.columnconfigure(1, weight=6, minsize=460)
+        self._footer()
+
+        # Middle scrollable container for multi-screen support
+        container = tk.Frame(self.root, bg=BG)
+        container.pack(side="top", fill="both", expand=True)
+
+        self.canvas = tk.Canvas(container, bg=BG, highlightthickness=0, bd=0)
+        self.v_scrollbar = tk.Scrollbar(container, orient="vertical", command=self.canvas.yview, bg=CARD)
+        self.canvas.configure(yscrollcommand=self.v_scrollbar.set)
+
+        self.v_scrollbar.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
+
+        self.scrollable_frame = tk.Frame(self.canvas, bg=BG)
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+
+        def _on_frame_configure(event):
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            self.canvas.itemconfig(self.canvas_window, width=event.width)
+
+        self.scrollable_frame.bind("<Configure>", _on_frame_configure)
+        self.canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _on_mousewheel(event):
+            if event.delta:
+                self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            elif event.num == 4:
+                self.canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                self.canvas.yview_scroll(1, "units")
+
+        self.root.bind_all("<MouseWheel>", _on_mousewheel)
+        self.root.bind_all("<Button-4>", _on_mousewheel)
+        self.root.bind_all("<Button-5>", _on_mousewheel)
+
+        main = tk.Frame(self.scrollable_frame, bg=BG)
+        main.pack(fill="both", expand=True, padx=14, pady=(4, 8))
+        main.columnconfigure(0, weight=4, minsize=320)
+        main.columnconfigure(1, weight=6, minsize=400)
         main.rowconfigure(0, weight=1)
+
         self._left(main)
         self._right(main)
-        self._footer()
 
     def _header(self):
         h = tk.Frame(self.root, bg=CARD, height=56)
@@ -887,10 +924,10 @@ class ArtOTPApp:
         tk.Button(brow, text="🗑 Bersihkan", font=("Segoe UI", 8), bg=INP, fg=T2, bd=0, padx=10, pady=4, relief="flat", cursor="hand2", command=self._clrlog, activebackground=HOV, activeforeground=T1).pack(side="right")
 
     def _footer(self):
-        tk.Frame(self.root, bg=BR, height=1).pack(fill="x")
         ft = tk.Frame(self.root, bg=CARD, height=56)
-        ft.pack(fill="x")
+        ft.pack(side="bottom", fill="x")
         ft.pack_propagate(False)
+        tk.Frame(self.root, bg=BR, height=1).pack(side="bottom", fill="x")
         self.info = tk.Label(ft, text=f"Siap — {len(TARGETS)} API aktif", bg=CARD, fg=T2, font=("Segoe UI", 9))
         self.info.pack(side="left", padx=16, pady=18)
         br = tk.Frame(ft, bg=CARD)
